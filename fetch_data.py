@@ -23,7 +23,8 @@ OUT = os.path.join(os.path.dirname(__file__), "public", "data.json")
 MAX_CANDIDATES = 20   # 每个指数最多校验的候选基金数（控制请求量）
 TEST_LIMIT = int(os.environ.get("TEST_LIMIT", "0"))  # >0 时只处理前 N 个，便于本机调试
 # 抓「基金细节」的总时间预算(秒)：超时即停止补全基金，已抓到的照常出页面，保证任务一定收尾。
-FUND_BUDGET = float(os.environ.get("FUND_BUDGET_SEC", "420"))
+# 境外 runner 抓国内接口约 ~40s/板块，46 个全抓约需 30min；Public 仓库 Actions 免费，放宽到 40min 兜底。
+FUND_BUDGET = float(os.environ.get("FUND_BUDGET_SEC", "2400"))
 _START = None  # main() 启动时间戳
 
 
