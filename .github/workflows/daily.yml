@@ -1,0 +1,43 @@
+name: daily-refresh
+
+on:
+  schedule:
+    # 00:00 UTC = 北京时间 08:00（GitHub 定时任务高峰期可能延迟几分钟）
+    - cron: "0 0 * * *"
+  workflow_dispatch: {}   # 支持在 Actions 页面手动点 "Run workflow" 立即刷新
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: 抓取估值与基金数据
+        run: python fetch_data.py
+      - name: 生成网页
+        run: python build_site.py
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
