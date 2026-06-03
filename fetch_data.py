@@ -18,13 +18,16 @@ import requests
 HDR = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
 }
-TIMEOUT = 25
+TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", "8"))  # 单请求超时(秒)，境外抓国内接口宜短
 OUT = os.path.join(os.path.dirname(__file__), "public", "data.json")
 MAX_CANDIDATES = 20   # 每个指数最多校验的候选基金数（控制请求量）
 TEST_LIMIT = int(os.environ.get("TEST_LIMIT", "0"))  # >0 时只处理前 N 个，便于本机调试
+# 抓「基金细节」的总时间预算(秒)：超时即停止补全基金，已抓到的照常出页面，保证任务一定收尾。
+FUND_BUDGET = float(os.environ.get("FUND_BUDGET_SEC", "420"))
+_START = None  # main() 启动时间戳
 
 
-def get(url, referer=None, retries=3):
+def get(url, referer=None, retries=2):
     h = dict(HDR)
     if referer:
         h["Referer"] = referer
@@ -38,8 +41,13 @@ def get(url, referer=None, retries=3):
             last = "HTTP %s" % r.status_code
         except Exception as e:  # noqa
             last = str(e)
-        time.sleep(1.2 * (i + 1))
+        time.sleep(0.8 * (i + 1))
     raise RuntimeError("GET failed %s : %s" % (url, last))
+
+
+def _over_budget():
+    """基金细节抓取是否已超总时间预算。"""
+    return _START is not None and (time.time() - _START) > FUND_BUDGET
 
 
 # 海外 / 港股 / QDII 指数关键词——本站只看 A 股板块，遇到即剔除
@@ -312,14 +320,24 @@ def select_fund(row):
 
 
 def main():
+    global _START
+    _START = time.time()
     print("抓取指数估值 ...")
     vals = fetch_valuations()
     print("  指数数量:", len(vals))
     if TEST_LIMIT:
         vals = sorted(vals, key=lambda x: x["temp"])[:TEST_LIMIT]
         print("  [调试] 仅处理前", TEST_LIMIT, "个最低估指数")
+    # 先按温度排序，优先为最低估（最值得看）的板块补全基金；万一超时，靠前的都有数据
+    vals.sort(key=lambda x: x["temp"])
 
+    skipped = 0
     for idx, row in enumerate(vals, 1):
+        if _over_budget():
+            row["fund"] = {"code": None}
+            row.pop("anchor_fund", None)
+            skipped += 1
+            continue
         try:
             fund = select_fund(row)
         except Exception as e:  # noqa
@@ -332,6 +350,8 @@ def main():
             fund.get("name"), fund.get("scale"), fund.get("fee_total"),
             fund.get("track_err"), fund.get("alt_count")))
 
+    if skipped:
+        print("  [预算] 超过 %ds，%d 个板块未补全基金（标为待补充），估值数据完整" % (FUND_BUDGET, skipped))
     vals.sort(key=lambda x: x["temp"])  # 估值从低到高
 
     ts = vals[0].get("as_of_ts") if vals else None
