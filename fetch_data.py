@@ -12,8 +12,19 @@ import re
 import time
 import datetime as dt
 import os
+import signal
 
 import requests
+
+_ALARM = hasattr(signal, "SIGALRM")  # Linux(GitHub runner)支持；Windows 本机自动跳过
+
+
+class _HardTimeout(Exception):
+    pass
+
+
+def _raise_to(signum, frame):  # SIGALRM 回调：强制中断卡住的请求
+    raise _HardTimeout("hard timeout")
 
 HDR = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -33,9 +44,18 @@ def get(url, referer=None, retries=2):
     if referer:
         h["Referer"] = referer
     last = None
+    hard = int(TIMEOUT) + 4  # 墙钟硬上限：即使对方"挤牙膏"慢回数据，到点也强制中断
     for i in range(retries):
         try:
-            r = requests.get(url, headers=h, timeout=TIMEOUT)
+            if _ALARM:
+                old = signal.signal(signal.SIGALRM, _raise_to)
+                signal.alarm(hard)
+            try:
+                r = requests.get(url, headers=h, timeout=TIMEOUT)
+            finally:
+                if _ALARM:
+                    signal.alarm(0)
+                    signal.signal(signal.SIGALRM, old)
             r.encoding = "utf-8"
             if r.status_code == 200:
                 return r

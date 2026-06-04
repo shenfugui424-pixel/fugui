@@ -18,6 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 55   # 硬上限：超过即自动终止，杜绝境外抓数"假死"挂死任务
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
